@@ -57,30 +57,3 @@ impl Drop for FakeSsm {
         self.handle.abort();
     }
 }
-
-// #[cfg(test)]
-// mod tests {
-//
-//     use super::*;
-//
-//     #[tokio::test]
-//     async fn test_fake_ssm1() {
-//         let fake = FakeSsm::start().await;
-//         fake.set_param_value("DB_PASSWORD", "Pass123");
-//         let client = fake.client().await;
-//         let res = client
-//             .get_parameter()
-//             .name("DB_PASSWORD")
-//             // .set_names(Some(vec![
-//             //     "DB_PASSWORD".to_string(),
-//             //     "DB_PASSWORD2".to_string(),
-//             // ]))
-//             .with_decryption(true)
-//             .send()
-//             .await
-//             .unwrap();
-//         // let val = res.parameters().unwrap().value().unwrap();
-//         println!("{res:?}");
-//         assert!(false);
-//     }
-// }

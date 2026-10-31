@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use serde::Serialize;
 use serde_json::Value as JsonValue;
 use vaultrs::api::kv2::responses::{
-    ReadSecretMetadataResponse, ReadSecretResponse, SecretVersionMetadata,
+    ListSecretsResponse, ReadSecretMetadataResponse, ReadSecretResponse, SecretVersionMetadata,
 };
 
 #[derive(Debug, Serialize)]
@@ -20,7 +20,7 @@ pub(crate) struct EndpointResult<T> {
 
 pub(crate) type ReadResponse = EndpointResult<ReadSecretResponse>;
 pub(crate) type MetadataResponse = EndpointResult<ReadSecretMetadataResponse>;
-pub(crate) type ListResponse = EndpointResult<Vec<String>>;
+pub(crate) type ListResponse = EndpointResult<ListSecretsResponse>;
 
 pub(crate) struct State {
     pub(crate) vault_mount: String,
@@ -55,8 +55,8 @@ impl State {
         self.read_responses.get(p)
     }
 
-    pub(crate) fn set_list_response(&mut self, p: &str, data: Vec<String>) {
-        let response = new_endpoint_result(data);
+    pub(crate) fn set_list_response(&mut self, p: &str, keys: Vec<String>) {
+        let response = new_endpoint_result(ListSecretsResponse { keys });
         self.list_responses.insert(p.to_string(), response);
     }
 

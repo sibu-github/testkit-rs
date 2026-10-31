@@ -99,7 +99,7 @@ fn get_expectation(state: Arc<Mutex<State>>, key: &RequestKey) -> anyhow::Result
     let expectation = state
         .lock()
         .map_err(|e| anyhow!("{e}"))?
-        .get_expetation(&key)
+        .get_expetation(key)
         .ok_or_else(|| anyhow!("expectation not set for: {}:{}", key.0, key.1))?;
     Ok(expectation)
 }

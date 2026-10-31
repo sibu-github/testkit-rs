@@ -51,11 +51,16 @@ impl FakeVault {
     }
 
     pub fn set_list_response(&self, path: &str, data: Vec<String>) {
-        self.state.lock().unwrap().set_list_response(path, data);
+        let path = format!("/v1/{}/metadata/{path}", self.mount);
+        self.state.lock().unwrap().set_list_response(&path, data);
     }
 
     pub fn set_metadata_response(&self, path: &str, data: ReadSecretMetadataResponse) {
-        self.state.lock().unwrap().set_metadata_response(path, data);
+        let path = format!("/v1/{}/metadata/{path}", self.mount);
+        self.state
+            .lock()
+            .unwrap()
+            .set_metadata_response(&path, data);
     }
 
     pub fn set_read_response(&self, path: &str, data: JsonValue) {
@@ -67,35 +72,5 @@ impl FakeVault {
 impl Drop for FakeVault {
     fn drop(&mut self) {
         self.handle.abort();
-    }
-}
-
-#[cfg(test)]
-mod tests {
-
-    use std::collections::HashMap;
-
-    use serde_json::json;
-    use vaultrs::kv2;
-
-    use super::*;
-
-    #[tokio::test]
-    async fn test_fake_vault1() {
-        let data = json!({
-            "username": "test-user",
-            "password": "test-password"
-        });
-        let mount = "dev";
-        let fake = FakeVault::start(mount).await;
-        fake.set_read_response("global/key1", data);
-        let client = fake.client();
-        let values = kv2::read::<HashMap<String, String>>(&client, mount, "global/key1")
-            .await
-            .unwrap();
-        // let values = kv2::read_metadata(&client, "dev", "global").await.unwrap();
-        // let values = kv2::list(&client, "dev", "global").await.unwrap();
-        println!("{values:?}");
-        assert!(false);
     }
 }

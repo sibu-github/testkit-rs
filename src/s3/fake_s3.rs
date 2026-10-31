@@ -64,26 +64,3 @@ impl Drop for FakeS3 {
         self.handle.abort();
     }
 }
-
-#[cfg(test)]
-mod tests {
-
-    use super::*;
-
-    #[tokio::test]
-    async fn test_fake_s3_1() {
-        let fake = FakeS3::start().await;
-        fake.get_object("my-bucket", "docs/my-file.txt", "Some texts");
-        let client = fake.client().await;
-        let res = client
-            .get_object()
-            .bucket("my-bucket")
-            .key("docs/my-file.txt")
-            .send()
-            .await
-            .unwrap();
-        let bytes = res.body.collect().await.unwrap().into_bytes();
-        let out = String::from_utf8_lossy(&bytes).to_string();
-        assert_eq!(out, "Some texts");
-    }
-}

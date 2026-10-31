@@ -3,7 +3,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use http_body_util::Full;
+use http_body_util::{BodyExt, Full};
 use hyper::{
     Method, Request, Response, StatusCode,
     body::{Bytes, Incoming},
@@ -26,7 +26,7 @@ async fn handle_stream(stream: TcpStream, state: Arc<Mutex<State>>) {
     let io = TokioIo::new(stream);
     let service = service_fn(move |req| handle_request(req, state.clone()));
     if let Err(e) = http1::Builder::new().serve_connection(io, service).await {
-        eprintln!("FakeSsm HTTP connection error: {e:?}");
+        eprintln!("FakeS3 HTTP connection error: {e:?}");
     }
 }
 
@@ -51,6 +51,7 @@ async fn handle_request(
     }
 
     if let Some(path) = is_put_object_req(&request) {
+        request.into_body().collect().await.unwrap();
         let state = state.lock().unwrap();
         state
             .put_objects

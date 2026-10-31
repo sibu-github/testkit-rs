@@ -5,8 +5,16 @@ pub(crate) struct State {
 
 impl State {
     pub(crate) fn add_parameters(&mut self, params: &[(String, String)]) {
-        for p in params {
-            self.parameters.push(p.clone());
+        for (name, value) in params {
+            if let Some((_, existing_value)) = self
+                .parameters
+                .iter_mut()
+                .find(|(existing_name, _)| existing_name == name)
+            {
+                *existing_value = value.clone();
+            } else {
+                self.parameters.push((name.clone(), value.clone()));
+            }
         }
     }
 

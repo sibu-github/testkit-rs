@@ -47,7 +47,7 @@ async fn handle_request(
         GET_PARAMETER => {
             let name = input["Name"].as_str().unwrap().to_owned();
             let (_, val) = parameters.iter().find(|(p, _)| p == &name).unwrap();
-            let body = param_value(&name, val);
+            let body = json!({ "Parameter": parameter_value(&name, val) });
             json_response(&body)
         }
         GET_PARAMETERS => {
@@ -61,13 +61,13 @@ async fn handle_request(
             let mut invalid_parameters = Vec::new();
             for name in names.iter() {
                 if let Some((_, val)) = parameters.iter().find(|(p, _)| p == name) {
-                    valid_parameters.push(param_value(name, val));
+                    valid_parameters.push(parameter_value(name, val));
                 } else {
                     invalid_parameters.push(name);
                 }
             }
             let body = json!({
-                "Parameters": parameters,
+                "Parameters": valid_parameters,
                 "InvalidParameters": invalid_parameters
             });
             json_response(&body)
@@ -86,14 +86,12 @@ fn get_target(request: &Request<Incoming>) -> String {
         .unwrap_or_default()
 }
 
-fn param_value(name: &str, value: &str) -> JsonValue {
+fn parameter_value(name: &str, value: &str) -> JsonValue {
     json!({
-        "Parameter": {
-            "Name": name,
-            "Type": "String",
-            "Value": value,
-            "Version": 1
-        }
+        "Name": name,
+        "Type": "String",
+        "Value": value,
+        "Version": 1
     })
 }
 
