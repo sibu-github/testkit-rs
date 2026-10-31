@@ -7,30 +7,52 @@ use crate::postgres::{
     types::{Column, PgType, Value},
 };
 
-/// A statement the server executed, as seen on the wire.
+/// A PostgreSQL statement received and recorded by
+/// [`crate::postgres::FakePostgres`].
 #[derive(Clone, Debug, PartialEq)]
 pub struct RecordedQuery {
-    /// Normalized SQL (whitespace collapsed, trailing `;` removed).
+    /// The normalized SQL, with whitespace collapsed and a trailing semicolon
+    /// removed.
     pub sql: String,
-    /// Raw bind parameters (binary-encoded by sqlx); `None` is SQL NULL.
+    /// The raw bind parameters encoded by `sqlx` for the PostgreSQL wire
+    /// protocol. An entry of `None` represents SQL `NULL`.
     pub params: Vec<Option<Vec<u8>>>,
 }
 
-/// What the fake server answers for a matched query.
+/// A response returned by [`crate::postgres::FakePostgres`] for a matched SQL
+/// statement.
 #[derive(Clone, Debug)]
 pub enum Response {
-    /// A result set. Sent as `RowDescription` + `DataRow`s + `CommandComplete`.
+    /// A result set sent as PostgreSQL `RowDescription`, `DataRow`, and
+    /// `CommandComplete` messages.
     Rows {
+        /// The names and PostgreSQL types of the result columns, in wire order.
         columns: Vec<Column>,
+        /// The result rows. Each row must contain one value per declared
+        /// column, in the same order.
         rows: Vec<Vec<Value>>,
     },
-    /// No rows, just a command tag such as `"INSERT 0 1"` or `"UPDATE 3"`.
+    /// A command completion without result rows.
+    ///
+    /// The contained string is a PostgreSQL command tag such as `"INSERT 0 1"`
+    /// or `"UPDATE 3"`.
     Command(String),
-    /// An `ErrorResponse` with the given SQLSTATE code (e.g. `"23505"`).
-    Error { code: String, message: String },
+    /// A PostgreSQL `ErrorResponse`.
+    Error {
+        /// The five-character SQLSTATE error code, such as `"23505"` for a
+        /// unique-constraint violation.
+        code: String,
+        /// The human-readable database error message.
+        message: String,
+    },
 }
 
 impl Response {
+    /// Creates a result-set response with the given column definitions and
+    /// rows.
+    ///
+    /// Each row must contain exactly one [`Value`] for every declared column.
+    /// Values are encoded according to the corresponding [`PgType`].
     pub fn rows(columns: &[(&str, PgType)], rows: Vec<Vec<Value>>) -> Self {
         Response::Rows {
             columns: columns
@@ -44,10 +66,19 @@ impl Response {
         }
     }
 
+    /// Creates a successful command response with no result rows.
+    ///
+    /// `tag` should be a PostgreSQL command-completion tag such as
+    /// `"INSERT 0 1"`, `"UPDATE 3"`, or `"DELETE 2"`. Drivers use this tag to
+    /// determine the number of affected rows.
     pub fn command(tag: impl Into<String>) -> Self {
         Response::Command(tag.into())
     }
 
+    /// Creates a PostgreSQL error response.
+    ///
+    /// `code` is the SQLSTATE error code reported to the client, and `message`
+    /// is its human-readable database error message.
     pub fn error(code: impl Into<String>, message: impl Into<String>) -> Self {
         Response::Error {
             code: code.into(),

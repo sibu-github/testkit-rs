@@ -8,12 +8,22 @@ use reqwest::header::HeaderMap;
 
 use crate::http::expectations::HttpExpectation;
 
+/// A request received by [`crate::http::FakeHttp`].
+///
+/// This request snapshot is passed to custom validators registered with
+/// `HttpExpectationBuilder::validate_with` after the fake reads and parses the
+/// incoming request.
 #[derive(Debug, Clone)]
 pub struct HttpRequest {
+    /// The HTTP request method.
     pub method: Method,
+    /// The URI path without its query string.
     pub path: String,
+    /// The parsed query parameters, keyed by parameter name.
     pub query: HashMap<String, String>,
+    /// The request headers.
     pub headers: HeaderMap,
+    /// The complete request body.
     pub body: Bytes,
 }
 

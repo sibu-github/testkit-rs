@@ -22,6 +22,37 @@ use crate::http::{
 };
 
 const TIMEOUT: Duration = Duration::from_secs(2);
+
+/// An in-process HTTP or HTTPS server for tests.
+///
+/// `FakeHttp` listens on a random localhost port and responds to requests using
+/// expectations registered by HTTP method and path. Use [`FakeHttp::client`] to
+/// create a [`reqwest::Client`] configured for direct requests or for hosts
+/// added with [`FakeHttp::intercept`].
+///
+/// The generated client has a two-second timeout and accepts the self-signed
+/// certificate used by [`FakeHttp::start_tls`]. It is intended only for tests.
+/// The server shuts down when the `FakeHttp` value is dropped.
+///
+/// # Example
+///
+/// ```no_run
+/// use testkit_rs::http::FakeHttp;
+///
+/// # async fn example() -> Result<(), reqwest::Error> {
+/// let fake = FakeHttp::start().await;
+/// fake.expect_get("/health").respond_ok("ok");
+///
+/// let response = fake
+///     .client()
+///     .get(format!("{}/health", fake.uri()))
+///     .send()
+///     .await?;
+///
+/// assert_eq!(response.text().await?, "ok");
+/// # Ok(())
+/// # }
+/// ```
 pub struct FakeHttp {
     intercepted_hosts: Vec<String>,
     is_tls: bool,
@@ -31,6 +62,14 @@ pub struct FakeHttp {
 }
 
 impl FakeHttp {
+    /// Starts an HTTP server on a random available localhost port.
+    ///
+    /// The server runs in a background Tokio task until this value is dropped.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the server cannot bind to a local port or inspect its bound
+    /// address.
     pub async fn start() -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
@@ -45,6 +84,17 @@ impl FakeHttp {
         }
     }
 
+    /// Starts an HTTPS server on a random available localhost port.
+    ///
+    /// The server uses a newly generated self-signed certificate valid for
+    /// `127.0.0.1` and `localhost`. [`FakeHttp::client`] is configured to accept
+    /// this certificate.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the server cannot bind to a local port, its bound address
+    /// cannot be inspected, or the TLS certificate and server configuration
+    /// cannot be generated.
     pub async fn start_tls() -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
@@ -89,11 +139,20 @@ impl FakeHttp {
         })
     }
 
+    /// Configures clients created by [`FakeHttp::client`] to resolve `host` to
+    /// this fake server.
+    ///
+    /// This allows application code to keep using its normal external URL while
+    /// routing requests to the fake. Multiple hosts can be registered by calling
+    /// this method repeatedly.
     pub fn intercept(&mut self, host: impl Into<String>) -> &mut Self {
         self.intercepted_hosts.push(host.into());
         self
     }
 
+    /// Returns the base URI for direct requests to this server.
+    ///
+    /// The URI uses `http` or `https` according to how the server was started.
     pub fn uri(&self) -> String {
         let port = self.port;
         if self.is_tls {
@@ -103,11 +162,24 @@ impl FakeHttp {
         }
     }
 
+    /// Returns the local socket address on which the server is listening.
     pub fn addr(&self) -> SocketAddr {
         let port = self.port;
         format!("127.0.0.1:{port}").parse().unwrap()
     }
 
+    /// Creates a [`reqwest::Client`] configured to send requests to this server.
+    ///
+    /// Registered intercepted hosts resolve to the fake's local address. The
+    /// client uses a two-second timeout and disables certificate and hostname
+    /// validation so it can connect to the self-signed TLS server.
+    ///
+    /// This client configuration is intentionally insecure and must only be
+    /// used in tests.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the client cannot be built.
     pub fn client(&self) -> reqwest::Client {
         let addr = self.addr();
         let mut builder = reqwest::ClientBuilder::new()
@@ -120,22 +192,37 @@ impl FakeHttp {
         builder.build().unwrap()
     }
 
+    /// Begins configuring an expected `GET` request to `path`.
+    ///
+    /// Complete the builder with a response method to register the expectation.
     pub fn expect_get(&self, path: &str) -> HttpExpectationBuilder {
         HttpExpectationBuilder::new(self.state.clone(), Method::GET, path)
     }
 
+    /// Begins configuring an expected `POST` request to `path`.
+    ///
+    /// Complete the builder with a response method to register the expectation.
     pub fn expect_post(&self, path: &str) -> HttpExpectationBuilder {
         HttpExpectationBuilder::new(self.state.clone(), Method::POST, path)
     }
 
+    /// Begins configuring an expected `PUT` request to `path`.
+    ///
+    /// Complete the builder with a response method to register the expectation.
     pub fn expect_put(&self, path: &str) -> HttpExpectationBuilder {
         HttpExpectationBuilder::new(self.state.clone(), Method::PUT, path)
     }
 
+    /// Begins configuring an expected `DELETE` request to `path`.
+    ///
+    /// Complete the builder with a response method to register the expectation.
     pub fn expect_delete(&self, path: &str) -> HttpExpectationBuilder {
         HttpExpectationBuilder::new(self.state.clone(), Method::DELETE, path)
     }
 
+    /// Begins configuring an expected `PATCH` request to `path`.
+    ///
+    /// Complete the builder with a response method to register the expectation.
     pub fn expect_patch(&self, path: &str) -> HttpExpectationBuilder {
         HttpExpectationBuilder::new(self.state.clone(), Method::PATCH, path)
     }

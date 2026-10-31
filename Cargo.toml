@@ -2,6 +2,18 @@
 name = "testkit-rs"
 version = "0.1.0"
 edition = "2024"
+authors = ["Sibaprasad Maiti <sibu.it13@gmail.com>"]
+description = "Lightweight, in-process service fakes for unit testing Rust applications with real client libraries."
+license = "MIT"
+repository = "https://github.com/sibu-github/testkit-rs"
+homepage = "https://github.com/sibu-github/testkit-rs"
+documentation = "https://docs.rs/testkit-rs"
+readme = "README.md"
+keywords = ["unit-testing", "mocking", "mongodb", "postgres", "http"]
+categories = ["development-tools::testing", "database"]
+
+[package.metadata.docs.rs]
+all-features = true
 
 [features]
 default = []
@@ -43,8 +55,6 @@ s3 = [
         "dep:url",
         "dep:serde_json"
     ]
-regex = ["dep:regex"]
-
 
 [dependencies]
 anyhow = "1.0.104"

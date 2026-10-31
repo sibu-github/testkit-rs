@@ -1,23 +1,37 @@
 //! Column types and cell values, plus their Postgres text/binary encodings.
 
-/// The Postgres column types FakePostgres can describe and encode.
+/// PostgreSQL column types that [`crate::postgres::FakePostgres`] can describe
+/// and encode in mocked result sets.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PgType {
+    /// The PostgreSQL `boolean` type.
     Bool,
+    /// The PostgreSQL variable-length binary string (`bytea`) type.
     Bytea,
+    /// The PostgreSQL two-byte signed integer (`smallint`) type.
     Int2,
+    /// The PostgreSQL four-byte signed integer (`integer`) type.
     Int4,
+    /// The PostgreSQL eight-byte signed integer (`bigint`) type.
     Int8,
+    /// The PostgreSQL four-byte floating-point (`real`) type.
     Float4,
+    /// The PostgreSQL eight-byte floating-point (`double precision`) type.
     Float8,
+    /// The PostgreSQL variable-length text (`text`) type.
     Text,
+    /// The PostgreSQL variable-length character (`varchar`) type.
     Varchar,
+    /// The PostgreSQL textual JSON (`json`) type.
     Json,
+    /// The PostgreSQL binary JSON (`jsonb`) type.
     Jsonb,
+    /// The PostgreSQL universally unique identifier (`uuid`) type.
     Uuid,
 }
 
 impl PgType {
+    /// Returns the PostgreSQL object identifier (OID) for this type.
     pub fn oid(self) -> u32 {
         use PgType::*;
         match self {
@@ -36,7 +50,10 @@ impl PgType {
         }
     }
 
-    /// Fixed size in bytes, or -1 for variable-length types (as in RowDescription).
+    /// Returns the fixed size of this type in bytes, or `-1` for a
+    /// variable-length type.
+    ///
+    /// This value is included in the PostgreSQL `RowDescription` message.
     pub fn size(self) -> i16 {
         use PgType::*;
         match self {
@@ -50,22 +67,34 @@ impl PgType {
     }
 }
 
-/// A column in a mocked result set.
+/// A column definition in a mocked PostgreSQL result set.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Column {
+    /// The column name reported to the client.
     pub name: String,
+    /// The PostgreSQL type used to describe and encode the column's values.
     pub ty: PgType,
 }
 
-/// A single cell value. How it is encoded depends on the column's [`PgType`]:
-/// `Int` fits Int2/Int4/Int8 (and Float*), `Text` fits Text/Varchar/Json/Jsonb/Uuid.
+/// A single cell value in a mocked PostgreSQL result row.
+///
+/// Encoding depends on the column's [`PgType`]. Integer values support integer
+/// and floating-point columns, text values support text, JSON, and UUID columns,
+/// and byte values support `bytea` columns.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Value {
+    /// A SQL `NULL` value.
     Null,
+    /// A boolean value for a [`PgType::Bool`] column.
     Bool(bool),
+    /// A signed integer value for an integer or floating-point column.
     Int(i64),
+    /// A floating-point value for a [`PgType::Float4`] or [`PgType::Float8`]
+    /// column.
     Float(f64),
+    /// A UTF-8 string for a text, `varchar`, JSON, JSONB, or UUID column.
     Text(String),
+    /// Arbitrary binary data for a [`PgType::Bytea`] column.
     Bytes(Vec<u8>),
 }
 
