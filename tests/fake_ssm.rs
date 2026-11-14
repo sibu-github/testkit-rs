@@ -2,7 +2,27 @@
 
 use std::collections::HashMap;
 
+use aws_sdk_ssm::error::ProvideErrorMetadata;
 use testkit_rs::ssm::FakeSsm;
+
+#[tokio::test]
+async fn get_parameter_for_unregistered_name_returns_parameter_not_found() {
+    let fake = FakeSsm::start().await;
+
+    let err = fake
+        .client()
+        .await
+        .get_parameter()
+        .name("DB_PASSWORD")
+        .send()
+        .await
+        .unwrap_err()
+        .into_service_error();
+
+    assert!(err.is_parameter_not_found(), "{err:?}");
+    let message = err.message().unwrap();
+    assert!(message.contains("DB_PASSWORD"), "{message}");
+}
 
 #[tokio::test]
 async fn get_parameter_returns_expected_value() {

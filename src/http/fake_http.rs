@@ -34,6 +34,12 @@ const TIMEOUT: Duration = Duration::from_secs(2);
 /// certificate used by [`FakeHttp::start_tls`]. It is intended only for tests.
 /// The server shuts down when the `FakeHttp` value is dropped.
 ///
+/// Each registered expectation answers one request; register it again to answer
+/// repeated requests. A request with no remaining expectation for its method
+/// and path receives `501 Not Implemented`, and a request that fails an
+/// expectation's checks receives `500 Internal Server Error`. In both cases the
+/// response body and the test output explain the mismatch.
+///
 /// # Example
 ///
 /// ```no_run

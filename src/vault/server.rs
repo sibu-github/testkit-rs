@@ -31,60 +31,86 @@ async fn handle_stream(stream: TcpStream, state: Arc<Mutex<State>>) {
     }
 }
 
+enum Outcome {
+    Found(Bytes),
+    NotFound,
+    UnknownRoute(String),
+    Unsupported,
+}
+
 async fn handle_request(
     request: Request<Incoming>,
     state: Arc<Mutex<State>>,
 ) -> Result<Response<Full<Bytes>>, Infallible> {
     let method = request.method().clone();
-    let uri = request.uri();
-    let path = uri.path();
+    let path = request.uri().path().to_owned();
     let list_method = Method::from_bytes(b"LIST").unwrap();
-    if method == list_method {
-        let state = state.lock().unwrap();
-        let response = state.get_list_response(path).unwrap();
-        return json_response(response);
-    }
-    if method != Method::GET {
-        unimplemented!()
-    }
-    let vault_mount = state.lock().unwrap().vault_mount();
-    if is_metadata_req(path, &vault_mount) {
-        let state = state.lock().unwrap();
-        let response = state.get_metadata_response(path).unwrap();
-        return json_response(response);
-    }
-    if is_data_req(path, &vault_mount) {
-        let state = state.lock().unwrap();
-        let response = state.get_read_response(path).unwrap();
-        return json_response(response);
-    }
 
-    unimplemented!()
+    // Serialize while holding the lock, then release it before building the
+    // response so nothing can fail with the lock held.
+    let outcome = {
+        let state = state.lock().unwrap();
+        let mount = state.vault_mount.as_str();
+        match kv2_section(&path, mount) {
+            None => Outcome::UnknownRoute(mount.to_owned()),
+            Some("metadata") if method == list_method => to_json(state.get_list_response(&path)),
+            Some("metadata") if method == Method::GET => {
+                to_json(state.get_metadata_response(&path))
+            }
+            Some("data") if method == Method::GET => to_json(state.get_read_response(&path)),
+            Some(_) => Outcome::Unsupported,
+        }
+    };
+
+    let response = match outcome {
+        Outcome::Found(body) => json_response(StatusCode::OK, body),
+        // Vault answers a missing secret or empty listing with 404 and an
+        // empty error list; vaultrs reports it as `ClientError::APIError`.
+        Outcome::NotFound => errors_response(StatusCode::NOT_FOUND, &[]),
+        Outcome::UnknownRoute(mount) => {
+            let message = format!(
+                "FakeVault: no handler for route `{path}`; the fake serves the KV v2 \
+                 mount `{mount}`"
+            );
+            errors_response(StatusCode::NOT_FOUND, &[message])
+        }
+        Outcome::Unsupported => {
+            let message = format!(
+                "FakeVault supports only KV v2 read, list, and read-metadata requests; \
+                 received {method} {path}"
+            );
+            errors_response(StatusCode::METHOD_NOT_ALLOWED, &[message])
+        }
+    };
+    Ok(response)
 }
 
-fn is_metadata_req(path: &str, vault_mount: &str) -> bool {
-    let path = path.strip_prefix("/v1/").unwrap();
-    let path = path.strip_prefix(vault_mount).unwrap();
-    let path = path.strip_prefix('/').unwrap();
-    path.starts_with("metadata")
+/// Returns the KV v2 section (`data` or `metadata`) addressed by `path`, or
+/// `None` when the path is not under `/v1/{mount}/`.
+fn kv2_section<'a>(path: &'a str, mount: &str) -> Option<&'a str> {
+    let rest = path
+        .strip_prefix("/v1/")?
+        .strip_prefix(mount)?
+        .strip_prefix('/')?;
+    rest.split('/').next()
 }
 
-fn is_data_req(path: &str, vault_mount: &str) -> bool {
-    let path = path.strip_prefix("/v1/").unwrap();
-    let path = path.strip_prefix(vault_mount).unwrap();
-    let path = path.strip_prefix('/').unwrap();
-    path.starts_with("data")
+fn to_json<T: Serialize>(response: Option<&T>) -> Outcome {
+    match response {
+        Some(response) => Outcome::Found(Bytes::from(serde_json::to_vec(response).unwrap())),
+        None => Outcome::NotFound,
+    }
 }
 
-fn json_response<T>(body: &T) -> Result<Response<Full<Bytes>>, Infallible>
-where
-    T: Serialize,
-{
-    let body = Bytes::from(serde_json::to_vec(body).unwrap());
-    let response = Response::builder()
-        .status(StatusCode::OK)
+fn errors_response(status: StatusCode, errors: &[String]) -> Response<Full<Bytes>> {
+    let body = serde_json::to_vec(&serde_json::json!({ "errors": errors })).unwrap();
+    json_response(status, Bytes::from(body))
+}
+
+fn json_response(status: StatusCode, body: Bytes) -> Response<Full<Bytes>> {
+    Response::builder()
+        .status(status)
         .header(CONTENT_TYPE, HeaderValue::from_static("application/json"))
         .body(Full::new(body))
-        .unwrap();
-    Ok(response)
+        .unwrap()
 }

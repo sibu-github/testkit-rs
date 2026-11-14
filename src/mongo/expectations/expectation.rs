@@ -1,5 +1,5 @@
-use anyhow::ensure;
-use bson::Document;
+use anyhow::{bail, ensure};
+use bson::{Bson, Document};
 
 use crate::mongo::{
     command_name::CommandName,
@@ -11,6 +11,36 @@ use crate::mongo::{
 };
 
 pub(crate) type Validator = Box<dyn Fn(&Document) -> anyhow::Result<()> + Send + Sync>;
+
+/// Reads an optional integer field that the driver may encode as either
+/// `Int32` or `Int64`.
+pub(crate) fn get_integer(command: &Document, key: &str) -> anyhow::Result<Option<i64>> {
+    match command.get(key) {
+        None => Ok(None),
+        Some(Bson::Int64(value)) => Ok(Some(*value)),
+        Some(Bson::Int32(value)) => Ok(Some(i64::from(*value))),
+        Some(other) => bail!("expected `{key}` to be an integer, received: {other}"),
+    }
+}
+
+/// Ensures an optional integer command field equals `expected`.
+pub(crate) fn ensure_integer(command: &Document, key: &str, expected: i64) -> anyhow::Result<()> {
+    let actual = get_integer(command, key)?;
+    ensure!(
+        actual == Some(expected),
+        "expected {key}: {expected}, received: {}",
+        actual.map_or_else(|| "none".to_owned(), |value| value.to_string())
+    );
+    Ok(())
+}
+
+/// Compares two documents, including the order of their keys.
+///
+/// BSON document equality ignores key order, but the order is significant in a
+/// sort specification: `{ a: 1, b: -1 }` and `{ b: -1, a: 1 }` sort differently.
+pub(crate) fn same_key_order(expected: &Document, actual: &Document) -> bool {
+    expected.len() == actual.len() && expected.iter().eq(actual.iter())
+}
 
 #[derive(Debug)]
 pub(crate) enum CommandExpectation {

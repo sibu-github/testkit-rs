@@ -46,10 +46,12 @@ impl FakeMongo {
     /// Returns the MongoDB connection URI for this server.
     ///
     /// The URI enables direct connection mode so the driver does not attempt
-    /// topology discovery through another MongoDB node.
+    /// topology discovery through another MongoDB node. It also sets a
+    /// five-second server selection timeout so a test fails quickly if the fake
+    /// stops responding.
     pub fn uri(&self) -> String {
         let port = self.port;
-        format!("mongodb://127.0.0.1:{port}/?directConnection=true&serverSelectionTimeoutMS=300000")
+        format!("mongodb://127.0.0.1:{port}/?directConnection=true&serverSelectionTimeoutMS=5000")
     }
 
     /// Creates an official MongoDB client configured to connect to this server.

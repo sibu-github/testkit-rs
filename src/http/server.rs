@@ -1,12 +1,12 @@
 use std::collections::HashMap;
 use std::convert::Infallible;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, PoisonError};
 
-use anyhow::anyhow;
 use http_body_util::{BodyExt, Full};
 use hyper::body::Bytes;
+use hyper::header::{CONTENT_TYPE, HeaderValue};
 use hyper::server::conn::http1;
-use hyper::{Request, Response};
+use hyper::{Request, Response, StatusCode};
 use hyper::{body::Incoming, service::service_fn};
 use hyper_util::rt::TokioIo;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -54,20 +54,39 @@ async fn handle_request(
     req: Request<Incoming>,
     state: Arc<Mutex<State>>,
 ) -> Result<Response<Full<Bytes>>, Infallible> {
-    let req = get_http_request(req)
-        .await
-        .inspect_err(|e| eprintln!("{e:?}"))
-        .unwrap();
-    let request_key = (req.method.clone(), req.path.clone());
-    let expectation = get_expectation(state, &request_key)
-        .inspect_err(|e| eprintln!("{e:?}"))
-        .unwrap();
-    let res = expectation
-        .validate_and_respond(&req)
-        .await
-        .inspect_err(|e| eprintln!("{e:?}"))
-        .unwrap();
-    Ok(res.into())
+    let req = match get_http_request(req).await {
+        Ok(req) => req,
+        Err(e) => {
+            let message = format!("FakeHttp could not read the request: {e:#}");
+            return Ok(failure(StatusCode::INTERNAL_SERVER_ERROR, message));
+        }
+    };
+    let (method, path) = (req.method.clone(), req.path.clone());
+    let Some(expectation) = get_expectation(&state, &(method.clone(), path.clone())) else {
+        let message = format!("FakeHttp has no expectation registered for {method} {path}");
+        return Ok(failure(StatusCode::NOT_IMPLEMENTED, message));
+    };
+    match expectation.validate_and_respond(&req).await {
+        Ok(res) => Ok(res.into()),
+        Err(e) => {
+            let message = format!("FakeHttp request {method} {path} did not match: {e:#}");
+            Ok(failure(StatusCode::INTERNAL_SERVER_ERROR, message))
+        }
+    }
+}
+
+/// Reports a request the fake could not answer as configured. The message is
+/// printed so it appears in the failing test's output, and is also returned as
+/// the response body so the client can see it.
+fn failure(status: StatusCode, message: String) -> Response<Full<Bytes>> {
+    eprintln!("{message}");
+    let mut res = Response::new(Full::new(Bytes::from(message)));
+    *res.status_mut() = status;
+    res.headers_mut().insert(
+        CONTENT_TYPE,
+        HeaderValue::from_static("text/plain; charset=utf-8"),
+    );
+    res
 }
 
 async fn get_http_request(req: Request<Incoming>) -> anyhow::Result<HttpRequest> {
@@ -95,11 +114,9 @@ async fn get_http_request(req: Request<Incoming>) -> anyhow::Result<HttpRequest>
     Ok(req)
 }
 
-fn get_expectation(state: Arc<Mutex<State>>, key: &RequestKey) -> anyhow::Result<HttpExpectation> {
-    let expectation = state
+fn get_expectation(state: &Mutex<State>, key: &RequestKey) -> Option<HttpExpectation> {
+    state
         .lock()
-        .map_err(|e| anyhow!("{e}"))?
+        .unwrap_or_else(PoisonError::into_inner)
         .get_expetation(key)
-        .ok_or_else(|| anyhow!("expectation not set for: {}:{}", key.0, key.1))?;
-    Ok(expectation)
 }

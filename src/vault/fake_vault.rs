@@ -18,7 +18,8 @@ const TOKEN: &str = "test-token";
 /// API. Tests register responses for paths under the mount passed to
 /// [`FakeVault::start`] without running or contacting a Vault server.
 ///
-/// Requests for unregistered paths are rejected by the server. Registering a
+/// Requests for unregistered paths receive a 404 response, which `vaultrs`
+/// reports as `ClientError::APIError` with code 404. Registering a
 /// response for the same path again replaces the previous response. The server
 /// runs in a background Tokio task and shuts down when the `FakeVault` value is
 /// dropped.
