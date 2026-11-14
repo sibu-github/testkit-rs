@@ -12,6 +12,7 @@ use hyper::{
     service::service_fn,
 };
 use hyper_util::rt::TokioIo;
+use percent_encoding::percent_decode_str;
 use tokio::net::{TcpListener, TcpStream};
 
 use crate::s3::state::State;
@@ -35,12 +36,15 @@ async fn handle_request(
     state: Arc<Mutex<State>>,
 ) -> Result<Response<Full<Bytes>>, Infallible> {
     if let Some(path) = is_get_object_req(&request) {
-        let state = state.lock().unwrap();
-        let body = state
-            .get_objects
-            .get(&path)
-            .cloned()
-            .expect("path is not registered");
+        let body = state.lock().unwrap().get_objects.get(&path).cloned();
+        let Some(body) = body else {
+            return Ok(error_response(
+                StatusCode::NOT_FOUND,
+                "NoSuchKey",
+                "The specified key does not exist.",
+                &path,
+            ));
+        };
         let response = Response::builder()
             .status(StatusCode::OK)
             .header(header::CONTENT_TYPE, "application/octet-stream")
@@ -51,13 +55,28 @@ async fn handle_request(
     }
 
     if let Some(path) = is_put_object_req(&request) {
-        request.into_body().collect().await.unwrap();
-        let state = state.lock().unwrap();
-        state
-            .put_objects
-            .iter()
-            .find(|&v| v == &path)
-            .expect("path is not registered");
+        if let Err(e) = request.into_body().collect().await {
+            let message = format!("FakeS3 could not read the PutObject body: {e}");
+            return Ok(error_response(
+                StatusCode::BAD_REQUEST,
+                "IncompleteBody",
+                &message,
+                &path,
+            ));
+        }
+        let is_registered = state.lock().unwrap().put_objects.contains(&path);
+        if !is_registered {
+            let message = format!(
+                "FakeS3 received a PutObject request for `{path}`, which was not \
+                 registered with FakeS3::put_object"
+            );
+            return Ok(error_response(
+                StatusCode::BAD_REQUEST,
+                "UnexpectedRequest",
+                &message,
+                &path,
+            ));
+        }
         let response = Response::builder()
             .status(StatusCode::OK)
             .header(header::CONTENT_LENGTH, "0")
@@ -66,7 +85,65 @@ async fn handle_request(
         return Ok(response);
     }
 
-    unimplemented!()
+    let message = format!(
+        "FakeS3 supports only GetObject and PutObject; received {} {}",
+        request.method(),
+        request.uri()
+    );
+    Ok(error_response(
+        StatusCode::NOT_IMPLEMENTED,
+        "NotImplemented",
+        &message,
+        request.uri().path(),
+    ))
+}
+
+/// Builds an S3-style XML error response that the AWS SDK parses into a typed
+/// error, such as `GetObjectError::NoSuchKey` for the `NoSuchKey` code.
+fn error_response(
+    status: StatusCode,
+    code: &str,
+    message: &str,
+    resource: &str,
+) -> Response<Full<Bytes>> {
+    let body = format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\
+         <Error><Code>{}</Code><Message>{}</Message><Resource>{}</Resource>\
+         <RequestId>fake-s3</RequestId></Error>",
+        xml_escape(code),
+        xml_escape(message),
+        xml_escape(resource),
+    );
+    Response::builder()
+        .status(status)
+        .header(header::CONTENT_TYPE, "application/xml")
+        .header(header::CONTENT_LENGTH, body.len())
+        .body(Full::new(Bytes::from(body)))
+        .unwrap()
+}
+
+fn xml_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&apos;"),
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
+/// Returns the request path with percent-encoding removed, so it can be
+/// compared with the `/{bucket}/{key}` paths registered on [`State`]. The SDK
+/// percent-encodes object keys, for example a space becomes `%20`.
+fn decoded_path(request: &Request<Incoming>) -> String {
+    percent_decode_str(request.uri().path())
+        .decode_utf8_lossy()
+        .into_owned()
 }
 
 fn is_put_object_req(request: &Request<Incoming>) -> Option<String> {
@@ -76,7 +153,7 @@ fn is_put_object_req(request: &Request<Incoming>) -> Option<String> {
     let uri = request.uri();
     let is_put_object = url::form_urlencoded::parse(uri.query()?.as_bytes())
         .any(|(key, val)| key == "x-id" && val == "PutObject");
-    is_put_object.then(|| uri.path().to_owned())
+    is_put_object.then(|| decoded_path(request))
 }
 
 fn is_get_object_req(request: &Request<Incoming>) -> Option<String> {
@@ -86,5 +163,5 @@ fn is_get_object_req(request: &Request<Incoming>) -> Option<String> {
     let uri = request.uri();
     let is_get_object = url::form_urlencoded::parse(uri.query()?.as_bytes())
         .any(|(key, val)| key == "x-id" && val == "GetObject");
-    is_get_object.then(|| uri.path().to_owned())
+    is_get_object.then(|| decoded_path(request))
 }

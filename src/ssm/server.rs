@@ -40,23 +40,48 @@ async fn handle_request(
     state: Arc<Mutex<State>>,
 ) -> Result<Response<Full<Bytes>>, Infallible> {
     let target = get_target(&request);
-    let body = request.into_body().collect().await.unwrap();
-    let input: JsonValue = serde_json::from_slice(&body.to_bytes()).unwrap();
+    let input = match request.into_body().collect().await {
+        Ok(body) => serde_json::from_slice::<JsonValue>(&body.to_bytes()),
+        Err(e) => {
+            let message = format!("FakeSsm could not read the request body: {e}");
+            return error_response("ValidationException", &message);
+        }
+    };
+    let Ok(input) = input else {
+        return error_response(
+            "ValidationException",
+            "FakeSsm could not parse the request body as JSON",
+        );
+    };
     let parameters = state.lock().unwrap().parameters();
     match target.as_str() {
         GET_PARAMETER => {
-            let name = input["Name"].as_str().unwrap().to_owned();
-            let (_, val) = parameters.iter().find(|(p, _)| p == &name).unwrap();
-            let body = json!({ "Parameter": parameter_value(&name, val) });
+            let Some(name) = input["Name"].as_str() else {
+                return error_response(
+                    "ValidationException",
+                    "FakeSsm expected a string `Name` in the GetParameter request",
+                );
+            };
+            let Some((_, val)) = parameters.iter().find(|(p, _)| p == name) else {
+                let message = format!("FakeSsm has no parameter registered with name `{name}`");
+                return error_response("ParameterNotFound", &message);
+            };
+            let body = json!({ "Parameter": parameter_value(name, val) });
             json_response(&body)
         }
         GET_PARAMETERS => {
-            let names = input["Names"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|name| name.as_str().unwrap().to_owned())
-                .collect::<Vec<_>>();
+            let names = input["Names"].as_array().and_then(|names| {
+                names
+                    .iter()
+                    .map(|name| name.as_str().map(str::to_owned))
+                    .collect::<Option<Vec<_>>>()
+            });
+            let Some(names) = names else {
+                return error_response(
+                    "ValidationException",
+                    "FakeSsm expected a string array `Names` in the GetParameters request",
+                );
+            };
             let mut valid_parameters = Vec::new();
             let mut invalid_parameters = Vec::new();
             for name in names.iter() {
@@ -72,7 +97,11 @@ async fn handle_request(
             });
             json_response(&body)
         }
-        _ => unreachable!(),
+        other => {
+            let message =
+                format!("FakeSsm supports only GetParameter and GetParameters; received `{other}`");
+            error_response("UnknownOperationException", &message)
+        }
     }
 }
 
@@ -96,14 +125,25 @@ fn parameter_value(name: &str, value: &str) -> JsonValue {
 }
 
 fn json_response(body: &JsonValue) -> Result<Response<Full<Bytes>>, Infallible> {
+    Ok(json_response_with_status(StatusCode::OK, body))
+}
+
+/// Builds an AWS JSON 1.1 error response. The SDK reads the `__type` field to
+/// produce a typed error, such as `GetParameterError::ParameterNotFound`.
+/// A 400 status is used so the SDK reports the error without retrying.
+fn error_response(error_type: &str, message: &str) -> Result<Response<Full<Bytes>>, Infallible> {
+    let body = json!({ "__type": error_type, "message": message });
+    Ok(json_response_with_status(StatusCode::BAD_REQUEST, &body))
+}
+
+fn json_response_with_status(status: StatusCode, body: &JsonValue) -> Response<Full<Bytes>> {
     let body = Bytes::from(serde_json::to_vec(body).unwrap());
-    let response = Response::builder()
-        .status(StatusCode::OK)
+    Response::builder()
+        .status(status)
         .header(
             CONTENT_TYPE,
             HeaderValue::from_static("application/x-amz-json-1.1"),
         )
         .body(Full::new(body))
-        .unwrap();
-    Ok(response)
+        .unwrap()
 }

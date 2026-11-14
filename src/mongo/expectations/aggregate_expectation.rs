@@ -1,6 +1,8 @@
 use anyhow::{anyhow, ensure};
 use bson::{Bson, Document};
 
+use crate::mongo::expectations::same_key_order;
+
 #[derive(Debug, Default)]
 pub(crate) struct AggregateExpectation {
     pub expected_pipeline: Option<Vec<Bson>>,
@@ -15,6 +17,15 @@ impl AggregateExpectation {
                 expected == pipeline,
                 "expected pipeline: {expected:?}, received: {pipeline:?}"
             );
+            // Pipeline equality ignores key order, which matters inside `$sort`.
+            for (expected, actual) in expected.iter().zip(pipeline) {
+                if let (Some(expected), Some(actual)) = (sort_of(expected), sort_of(actual)) {
+                    ensure!(
+                        same_key_order(expected, actual),
+                        "expected $sort stage: {expected}, received: {actual}"
+                    );
+                }
+            }
         }
         if let Some(expected) = self.expected_count_query.as_ref() {
             let query = command
@@ -31,4 +42,8 @@ impl AggregateExpectation {
 
         Ok(())
     }
+}
+
+fn sort_of(stage: &Bson) -> Option<&Document> {
+    stage.as_document()?.get_document("$sort").ok()
 }

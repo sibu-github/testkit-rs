@@ -39,10 +39,6 @@ impl State {
         }
     }
 
-    pub(crate) fn vault_mount(&self) -> String {
-        self.vault_mount.clone()
-    }
-
     pub(crate) fn get_list_response(&self, p: &str) -> Option<&ListResponse> {
         self.list_responses.get(p)
     }

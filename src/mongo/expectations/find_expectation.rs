@@ -1,6 +1,8 @@
 use anyhow::ensure;
 use bson::Document;
 
+use crate::mongo::expectations::{ensure_integer, same_key_order};
+
 #[derive(Debug, Default)]
 pub(crate) struct FindExpectation {
     pub expected_filter: Option<Document>,
@@ -22,7 +24,7 @@ impl FindExpectation {
         if let Some(expected) = self.expected_sort.as_ref() {
             let sort = command.get_document("sort")?;
             ensure!(
-                expected == sort,
+                same_key_order(expected, sort),
                 "expected sort: {expected}, received: {sort}"
             );
         }
@@ -34,18 +36,10 @@ impl FindExpectation {
             );
         }
         if let Some(expected) = self.expected_limit {
-            let limit = command.get_i64("limit").unwrap();
-            ensure!(
-                expected == limit,
-                "expected limit: {expected}, received: {limit}"
-            );
+            ensure_integer(command, "limit", expected)?;
         }
         if let Some(expected) = self.expected_skip {
-            let skip = command.get_i64("skip")?;
-            ensure!(
-                expected == skip,
-                "expected skip: {expected}, received: {skip}"
-            );
+            ensure_integer(command, "skip", expected)?;
         }
 
         Ok(())

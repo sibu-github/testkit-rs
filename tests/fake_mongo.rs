@@ -491,3 +491,82 @@ async fn find_one_works_with_custom_validator() {
     let user = find_user_by_id(&client, 23).await.unwrap();
     assert_eq!(user.id, expected_id);
 }
+
+#[tokio::test]
+async fn find_reports_a_missing_limit() {
+    let fake = FakeMongo::start().await;
+    fake.expect_find()
+        .collection(COLLECTION)
+        .limit(10)
+        .respond_with::<User>(&[]);
+    let client = fake.client().await;
+
+    let err = client
+        .database(DB_NAME)
+        .collection::<User>(COLLECTION)
+        .find(doc! {})
+        .await
+        .unwrap_err();
+
+    assert!(
+        err.to_string()
+            .contains("expected limit: 10, received: none"),
+        "{err}"
+    );
+}
+
+#[tokio::test]
+async fn find_sort_expectation_checks_key_order() {
+    let fake = FakeMongo::start().await;
+    fake.expect_find()
+        .sort(doc! {"name": 1, "id": -1})
+        .respond_with::<User>(&[]);
+    let client = fake.client().await;
+
+    let err = client
+        .database(DB_NAME)
+        .collection::<User>(COLLECTION)
+        .find(doc! {})
+        .sort(doc! {"id": -1, "name": 1})
+        .await
+        .unwrap_err();
+
+    assert!(err.to_string().contains("expected sort"), "{err}");
+}
+
+#[tokio::test]
+async fn find_one_and_update_sort_expectation_checks_key_order() {
+    let fake = FakeMongo::start().await;
+    fake.expect_find_and_update()
+        .sort(doc! {"name": 1, "id": -1})
+        .respond_with(Some(User::new(1)));
+    let client = fake.client().await;
+
+    let err = client
+        .database(DB_NAME)
+        .collection::<User>(COLLECTION)
+        .find_one_and_update(doc! {}, doc! {"$set": {"name": "x"}})
+        .sort(doc! {"id": -1, "name": 1})
+        .await
+        .unwrap_err();
+
+    assert!(err.to_string().contains("expected sort"), "{err}");
+}
+
+#[tokio::test]
+async fn aggregate_sort_stage_checks_key_order() {
+    let fake = FakeMongo::start().await;
+    fake.expect_aggregate()
+        .pipeline(vec![doc! {"$sort": {"name": 1, "id": -1}}])
+        .respond_with(vec![]);
+    let client = fake.client().await;
+
+    let err = client
+        .database(DB_NAME)
+        .collection::<Document>(COLLECTION)
+        .aggregate(vec![doc! {"$sort": {"id": -1, "name": 1}}])
+        .await
+        .unwrap_err();
+
+    assert!(err.to_string().contains("expected $sort stage"), "{err}");
+}

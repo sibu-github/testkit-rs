@@ -193,3 +193,5 @@ Expectations are available for `GET`, `POST`, `PUT`, `PATCH`, and `DELETE`. Each
 - custom request rules with `validate_with`
 
 Responses can use `respond_ok`, `respond_with`, `respond_ok_json`, or `respond_with_json` to control the status and body.
+
+Each expectation answers one request. A request with no remaining expectation for its method and path receives `501 Not Implemented`, and a request that fails an expectation's checks receives `500 Internal Server Error`. The response body and the test output both explain the mismatch.

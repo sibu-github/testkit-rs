@@ -456,7 +456,19 @@ async fn read_message(sock: &mut TcpStream) -> io::Result<(u8, Vec<u8>)> {
 
 /// Serves one client connection until it terminates or errors.
 pub(crate) async fn serve(mut sock: TcpStream, state: Arc<State>) {
-    serve_inner(&mut sock, state).await.unwrap();
+    if let Err(e) = serve_inner(&mut sock, state).await {
+        // Clients such as a dropped `PgPool` may close the socket without
+        // sending Terminate; that is a normal disconnect, not an error.
+        let disconnected = matches!(
+            e.kind(),
+            io::ErrorKind::UnexpectedEof
+                | io::ErrorKind::ConnectionReset
+                | io::ErrorKind::BrokenPipe
+        );
+        if !disconnected {
+            eprintln!("FakePostgres connection error: {e}");
+        }
+    }
 }
 
 async fn serve_inner(sock: &mut TcpStream, state: Arc<State>) -> io::Result<()> {

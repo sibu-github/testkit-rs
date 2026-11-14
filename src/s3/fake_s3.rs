@@ -12,9 +12,11 @@ use crate::s3::{server::serve, state::State};
 /// register object bodies returned by `GetObject` requests and paths accepted
 /// by `PutObject` requests without contacting AWS.
 ///
-/// Requests for unregistered objects are rejected by the server. The server
-/// runs in a background Tokio task and shuts down when the `FakeS3` value is
-/// dropped.
+/// A `GetObject` request for an unregistered object receives a `NoSuchKey`
+/// error, as S3 would return. A `PutObject` request for an unregistered path,
+/// or any other S3 operation, receives an error whose message describes the
+/// request. The server runs in a background Tokio task and shuts down when the
+/// `FakeS3` value is dropped.
 pub struct FakeS3 {
     port: u16,
     state: Arc<Mutex<State>>,

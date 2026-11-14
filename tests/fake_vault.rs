@@ -6,8 +6,71 @@ use serde_json::json;
 use testkit_rs::vault::FakeVault;
 use vaultrs::{
     api::kv2::responses::{ReadSecretMetadataResponse, SecretMetadata},
+    error::ClientError,
     kv2,
 };
+
+#[tokio::test]
+async fn read_for_unregistered_path_returns_404() {
+    let mount = "dev";
+    let fake = FakeVault::start(mount).await;
+
+    let err = kv2::read::<HashMap<String, String>>(&fake.client(), mount, "global/missing")
+        .await
+        .unwrap_err();
+
+    assert!(
+        matches!(err, ClientError::APIError { code: 404, .. }),
+        "{err:?}"
+    );
+}
+
+#[tokio::test]
+async fn list_for_unregistered_path_returns_404() {
+    let mount = "dev";
+    let fake = FakeVault::start(mount).await;
+
+    let err = kv2::list(&fake.client(), mount, "global")
+        .await
+        .unwrap_err();
+
+    assert!(
+        matches!(err, ClientError::APIError { code: 404, .. }),
+        "{err:?}"
+    );
+}
+
+#[tokio::test]
+async fn read_from_another_mount_names_the_configured_mount() {
+    let fake = FakeVault::start("dev").await;
+
+    let err = kv2::read::<HashMap<String, String>>(&fake.client(), "prod", "global/key1")
+        .await
+        .unwrap_err();
+
+    let ClientError::APIError { code, errors } = err else {
+        panic!("expected an API error, got {err:?}");
+    };
+    assert_eq!(code, 404);
+    assert!(errors[0].contains("mount `dev`"), "{errors:?}");
+}
+
+#[tokio::test]
+async fn server_keeps_serving_after_a_missing_secret() {
+    let mount = "dev";
+    let fake = FakeVault::start(mount).await;
+    fake.set_read_response("global/key1", json!({ "username": "test-user" }));
+    let client = fake.client();
+
+    kv2::read::<HashMap<String, String>>(&client, mount, "global/missing")
+        .await
+        .unwrap_err();
+
+    let values = kv2::read::<HashMap<String, String>>(&client, mount, "global/key1")
+        .await
+        .unwrap();
+    assert_eq!(values["username"], "test-user");
+}
 
 #[tokio::test]
 async fn read_returns_expected_secret() {

@@ -11,8 +11,9 @@ use crate::ssm::{server::serve, state::State};
 /// `GetParameters` requests from the official [`aws_sdk_ssm::Client`]. Tests can
 /// register parameter names and values without contacting AWS.
 ///
-/// For `GetParameters`, registered names are returned as parameters and missing
-/// names are reported as invalid parameters. Registering an existing name again
+/// `GetParameter` for an unregistered name receives a `ParameterNotFound`
+/// error. For `GetParameters`, registered names are returned as parameters and
+/// missing names are reported as invalid parameters. Registering an existing name again
 /// replaces its value. The server runs in a background Tokio task and shuts down
 /// when the `FakeSsm` value is dropped.
 pub struct FakeSsm {

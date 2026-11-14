@@ -1,6 +1,8 @@
 use anyhow::ensure;
 use bson::{Bson, Document};
 
+use crate::mongo::expectations::same_key_order;
+
 #[derive(Debug, Default)]
 pub(crate) struct FindAndModifyExpectation {
     pub expected_filter: Option<Document>,
@@ -32,7 +34,7 @@ impl FindAndModifyExpectation {
         if let Some(expected) = self.expected_sort.as_ref() {
             let sort = command.get_document("sort")?;
             ensure!(
-                expected == sort,
+                same_key_order(expected, sort),
                 "expected sort: {expected}, received: {sort}"
             );
         }
